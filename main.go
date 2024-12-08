@@ -10,7 +10,10 @@ import (
 
 type APIResponse interface{}
 
-// Respostas das APIs
+type ApiResponse struct {
+	Api string `json:"Api"`
+}
+
 type ViaCEP struct {
 	ApiResponse
 	Cep         string `json:"cep"`
@@ -27,90 +30,76 @@ type ViaCEP struct {
 
 type ApiCEP struct {
 	ApiResponse
-	Code       string `json:"code"`
-	State      string `json:"state"`
-	City       string `json:"city"`
-	District   string `json:"district"`
-	Address    string `json:"address"`
-	Status     int    `json:"status"`
-	Ok         bool   `json:"ok"`
-	StatusText string `json:"statusText"`
+	Cep          string `json:"cep"`
+	State        string `json:"state"`
+	City         string `json:"city"`
+	Neighborhood string `json:"neighborhood"`
+	Street       string `json:"street"`
+	Service      string `json:"service"`
+	Status       int    `json:"status"`
+	Ok           bool   `json:"ok"`
+	StatusText   string `json:"statusText"`
 }
 
 func main() {
-	// Criando canais para comunicação entre goroutines
 	channelViaCEP := make(chan ViaCEP)
 	channelApiCEP := make(chan ApiCEP)
 
-	// Iniciando as goroutines para as requisições simultâneas
 	go GetViaCEP(channelViaCEP)
 	go GetApiCEP(channelApiCEP)
 
-	// Seleção da primeira resposta que chegar
 	select {
 	case resViaCEP := <-channelViaCEP:
-		// Exibe a resposta da ViaCEP
 		fmt.Printf("ViaCEP: %+v\n", resViaCEP)
+
 	case resApiCEP := <-channelApiCEP:
-		// Exibe a resposta da ApiCEP
-		fmt.Printf("ApiCEP: %+v\n", resApiCEP)
-	case <-time.After(time.Second):
-		// Caso não haja resposta dentro de 1 segundo
-		fmt.Println("Timeout")
+		fmt.Printf("Brasilapi: %+v\n", resApiCEP)
+
+	case <-time.After(time.Second * 10):
+		fmt.Printf("TimeOut\n")
 	}
 }
 
-// Função para buscar dados do ViaCEP
 func GetViaCEP(chApi chan ViaCEP) {
 	var viaCEP ViaCEP
-	err := RequestAPI("https://viacep.com.br/ws/22621252/json/", &viaCEP)
-	if err != nil {
-		fmt.Println("Erro na API ViaCEP:", err)
-		chApi <- ViaCEP{}
-		return
-	}
+	RequestAPI("https://viacep.com.br/ws/22621252/json/", &viaCEP)
+	// Simular o tempo maior na requisição.
+	// time.Sleep(2 * time.Second)
 	viaCEP.ApiResponse.Api = "ViaCEP"
 	chApi <- viaCEP
 }
 
-// Função para buscar dados do ApiCEP
-func GetApiCEP(chVia chan ApiCEP) {
+func GetApiCEP(chApi chan ApiCEP) {
 	var apiCEP ApiCEP
-	err := RequestAPI("https://cdn.apicep.com/file/apicep/22260-003.json", &apiCEP)
-	if err != nil {
-		fmt.Println("Erro na API ApiCEP:", err)
-		chVia <- ApiCEP{}
-		return
-	}
+	RequestAPI("https://brasilapi.com.br/api/cep/v1/08141140", &apiCEP)
+	// Simular o tempo maior na requisição.
+	// time.Sleep(2 * time.Second)
 	apiCEP.ApiResponse.Api = "ApiCEP"
-	chVia <- apiCEP
+	chApi <- apiCEP
 }
 
-// Função genérica para requisições HTTP com controle de timeout
 func RequestAPI(url string, res APIResponse) error {
-	// Configurando cliente HTTP com timeout
-	client := &http.Client{
-		Timeout: 1 * time.Second, // Timeout de 1 segundo
-	}
-
-	// Realizando a requisição GET
-	req, err := client.Get(url)
+	req, err := http.Get(url)
 	if err != nil {
-		return fmt.Errorf("erro ao realizar a requisição: %w", err)
+		return err
 	}
 	defer req.Body.Close()
 
-	// Lendo o corpo da resposta
+	// Lê o corpo da resposta
 	body, err := ioutil.ReadAll(req.Body)
 	if err != nil {
-		return fmt.Errorf("erro ao ler o corpo da resposta: %w", err)
+		return err
 	}
 
-	// Deserializando a resposta JSON
+	// Verifica o código de status para erros como 429
+	if req.StatusCode == 429 {
+		return fmt.Errorf("erro 429: Too Many Requests")
+	}
+
+	// Deserializa o corpo JSON na estrutura fornecida
 	err = json.Unmarshal(body, res)
 	if err != nil {
-		return fmt.Errorf("erro ao decodificar a resposta JSON: %w", err)
+		return err
 	}
-
 	return nil
 }
